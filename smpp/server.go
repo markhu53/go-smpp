@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-package smpptest
+package smpp
 
 import (
 	"crypto/tls"
@@ -15,23 +15,25 @@ import (
 	"sync/atomic"
 	"time"
 
+	log "github.com/Sirupsen/logrus"
+
+	"github.com/veoo/go-smpp/smpp/logger"
 	"github.com/veoo/go-smpp/smpp/pdu"
 	"github.com/veoo/go-smpp/smpp/pdu/pdufield"
 )
 
 // Default settings.
 var (
-	DefaultUser                = "client"
-	DefaultPasswd              = "secret"
-	DefaultSystemID            = "smpptest"
-	DeliverDelay               = 1 * time.Second
-	msgIDcounter         int64 = 0
-	FinalDeliveryReceipt       = 0x01 // TODO(cesar0094): move this to an appropriate package, since importing smpp causes import cycle
+	DefaultUser           = "client"
+	DefaultPasswd         = "secret"
+	DefaultSystemID       = "smpptest"
+	DeliverDelay          = 1 * time.Second
+	msgIDcounter    int64 = 0
 )
 
-// HandlerFunc is the signature of a function passed to Server instances,
+// RequestHandlerFunc is the signature of a function passed to Server instances,
 // that is called when client PDU messages arrive.
-type HandlerFunc func(c Conn, m pdu.Body)
+type RequestHandlerFunc func(c Conn, m pdu.Body)
 
 // Server is an SMPP server for testing purposes. By default it authenticate
 // clients with the configured credentials, and echoes any other PDUs
@@ -40,7 +42,7 @@ type Server struct {
 	User    string
 	Passwd  string
 	TLS     *tls.Config
-	Handler HandlerFunc
+	Handler RequestHandlerFunc
 
 	mu sync.Mutex
 	l  net.Listener
@@ -118,10 +120,12 @@ func (srv *Server) Serve() {
 	for {
 		cli, err := srv.l.Accept()
 		if err != nil {
-			Error.Println("Closing server:", err)
+			logger.Server.Error("Closing server:", err)
 			break // on srv.l.Close
 		}
-		Info.Println("New client:", cli.RemoteAddr())
+		logger.Server.WithFields(log.Fields{
+			"address": cli.RemoteAddr(),
+		}).Info("New client")
 		go srv.handle(newConn(cli))
 	}
 }
@@ -131,7 +135,7 @@ func (srv *Server) handle(c *conn) {
 	defer c.Close()
 	if err := srv.auth(c); err != nil {
 		if err != io.EOF {
-			Error.Println("Server auth failed:", err)
+			logger.Server.Error("Server auth failed:", err)
 		}
 		return
 	}
@@ -139,7 +143,7 @@ func (srv *Server) handle(c *conn) {
 		pdu, err := c.Read()
 		if err != nil {
 			if err != io.EOF {
-				Error.Println("Read failed:", err)
+				logger.Server.Error("Read failed:", err)
 			}
 			break
 		}
@@ -183,10 +187,10 @@ func (srv *Server) auth(c *conn) error {
 	return nil
 }
 
-// EchoHandler is the default Server HandlerFunc, and echoes back
+// EchoHandler is the default Server RequestHandlerFunc, and echoes back
 // any PDUs received.
 func EchoHandler(cli Conn, m pdu.Body) {
-	// log.Printf("smpptest: echo PDU from %s: %#v", cli.RemoteAddr(), m)
+	// logger.Server.Printf("smpptest: echo PDU from %s: %#v", cli.RemoteAddr(), m)
 	//
 	// Real servers will reply with at least the same sequence number
 	// from the request:
@@ -199,10 +203,14 @@ func EchoHandler(cli Conn, m pdu.Body) {
 	cli.Write(m)
 }
 
-// StubHandler is a HandlerFunc that returns compliant but dummy PDUs that are useful
+// StubHandler is a RequestHandlerFunc that returns compliant but dummy PDUs that are useful
 // for testing clients
 func StubHandler(conn Conn, m pdu.Body) {
-	Info.Println("Processing incoming PDU:", m.Header().ID, "seq:", m.Header().Seq)
+	logger.Server.WithFields(log.Fields{
+		"pudId": m.Header().ID.String(),
+		"seq":   m.Header().Seq,
+	}).Info("Processing incoming PDU")
+
 	var resp pdu.Body
 	switch m.Header().ID {
 	case pdu.EnquireLinkID:
@@ -222,11 +230,12 @@ func StubHandler(conn Conn, m pdu.Body) {
 	default:
 		// falls back to echoing the response
 		EchoHandler(conn, m)
+		return
 	}
 
 	err := conn.Write(resp)
 	if err != nil {
-		Error.Println("Error sending response:", err)
+		logger.Server.Error("Failed sending response:", err)
 	}
 }
 
@@ -291,6 +300,6 @@ func processShortMessage(conn Conn, submitSmPdu pdu.Body) {
 
 	err := conn.Write(respPdu)
 	if err != nil {
-		Error.Println("Failed sending delivery_sm:", err)
+		logger.Server.Error("Failed sending delivery_sm: ", err)
 	}
 }
