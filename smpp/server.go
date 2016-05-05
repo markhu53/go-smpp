@@ -6,6 +6,7 @@ package smpp
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -31,9 +32,17 @@ var (
 	msgIdCounter    int64 = 0
 )
 
+var HandlerRoutings = map[pdu.ID]func(pdu.Body) pdu.Body{
+	pdu.EnquireLinkID:     handleEnquireLink,
+	pdu.EnquireLinkRespID: handleEnquireLinkResp,
+	pdu.SubmitSMID:        handleSubmitSM,
+	pdu.SubmitSMRespID:    handleInvalidCommand,
+	pdu.DeliverSMRespID:   handleDeliverSMResp,
+}
+
 // RequestHandlerFunc is the signature of a function passed to Server instances,
 // that is called when client PDU messages arrive.
-type RequestHandlerFunc func(s *session, m pdu.Body)
+type RequestHandlerFunc func(Session, pdu.Body)
 
 // Server is an SMPP server for testing purposes. By default it authenticate
 // clients with the configured credentials, and echoes any other PDUs
@@ -48,8 +57,14 @@ type Server struct {
 	l  net.Listener
 }
 
-func nextMessageId() string {
+func NextMessageId() string {
 	return strconv.FormatInt(atomic.AddInt64(&msgIdCounter, 1), 10)
+}
+
+type Session interface {
+	Reader
+	Writer
+	Closer
 }
 
 // NOTE: should handler funcs be session methods?
@@ -216,7 +231,7 @@ func (srv *Server) auth(c *conn) error {
 
 // EchoHandler is the default Server RequestHandlerFunc, and echoes back
 // any PDUs received.
-func EchoHandler(s *session, m pdu.Body) {
+func EchoHandler(s Session, m pdu.Body) {
 	// logger.Server.Printf("smpptest: echo PDU from %s: %#v", s.RemoteAddr(), m)
 	//
 	// Real servers will reply with at least the same sequence number
@@ -232,65 +247,123 @@ func EchoHandler(s *session, m pdu.Body) {
 
 // StubHandler is a RequestHandlerFunc that returns compliant but dummy PDUs that are useful
 // for testing clients
-func StubHandler(s *session, m pdu.Body) {
+func StubHandler(s Session, m pdu.Body) {
+	bodyBytes, _ := json.Marshal(m)
 	logger.Server.WithFields(log.Fields{
 		"pudId": m.Header().ID.String(),
 		"seq":   m.Header().Seq,
+		"json":  string(bodyBytes),
 	}).Info("Processing incoming PDU")
 
 	var resp pdu.Body
 	switch m.Header().ID {
 	case pdu.EnquireLinkID:
-		resp = handleEnquireLink(s, m)
+		resp = handleEnquireLink(m)
 	case pdu.EnquireLinkRespID:
 		// TODO(cesar0094): what should happen if this is not received after request
 		return
 	case pdu.SubmitSMID:
-		resp = handleSubmitSM(s, m)
+		resp = handleSubmitSM(m)
+		go processShortMessage(s, m)
 	case pdu.SubmitSMRespID:
-		resp = handleInvalidCommand()
+		resp = handleInvalidCommand(m)
 	case pdu.DeliverSMID:
-		resp = handleInvalidCommand()
+		resp = handleInvalidCommand(m)
 	case pdu.DeliverSMRespID:
 		// TODO(cesar0094): Good to go?
 		return
 	default:
-		// falls back to echoing the response
+		logger.Server.Info(
+			"Could not find proper handler. Falling back to EchoHandler.")
 		EchoHandler(s, m)
 		return
 	}
 
+	if resp == nil {
+		return
+	}
 	err := s.Write(resp)
 	if err != nil {
 		logger.Server.Error("Failed sending response:", err)
 	}
+	bodyBytes, _ = json.Marshal(resp)
+	logger.Server.WithFields(log.Fields{
+		"pudId": resp.Header().ID.String(),
+		"seq":   resp.Header().Seq,
+		"json":  string(bodyBytes),
+	}).Info("Sent response PDU")
 }
 
-func handleSubmitSM(s *session, m pdu.Body) pdu.Body {
+// RouterHandler delegates the handling of PDUs to the HandlerRoutings and uses EchoHandler
+// as a fall-back
+func RouterHandler(s Session, m pdu.Body) {
+	bodyBytes, _ := json.Marshal(m)
+	logger.Server.WithFields(log.Fields{
+		"pudId": m.Header().ID.String(),
+		"seq":   m.Header().Seq,
+		"json":  string(bodyBytes),
+	}).Info("Processing incoming PDU")
+
+	var resp pdu.Body
+	if handler, ok := HandlerRoutings[m.Header().ID]; ok {
+		resp = handler(m)
+	} else {
+		logger.Server.Info(
+			"Could not find handler matching PDU ID. Falling back to EchoHandler.")
+		EchoHandler(s, m)
+		return
+	}
+
+	if resp == nil {
+		return
+	}
+	err := s.Write(resp)
+	if err != nil {
+		logger.Server.Error("Failed sending response:", err)
+	}
+	bodyBytes, _ = json.Marshal(resp)
+	logger.Server.WithFields(log.Fields{
+		"pudId": resp.Header().ID.String(),
+		"seq":   resp.Header().Seq,
+		"json":  string(bodyBytes),
+	}).Info("Sent response PDU")
+}
+
+func handleSubmitSM(m pdu.Body) pdu.Body {
 	resp := pdu.NewSubmitSMResp()
 	resp.Header().Seq = m.Header().Seq
 
-	messageId := nextMessageId()
+	messageId := NextMessageId()
 	resp.Fields().Set(pdufield.MessageID, messageId)
 	m.Fields().Set(pdufield.MessageID, messageId)
 
-	go processShortMessage(s, m)
+	// TODO(cesar0094): "send" message and return deliverySM
 	return resp
 }
 
-func handleEnquireLink(s *session, m pdu.Body) pdu.Body {
+func handleEnquireLink(m pdu.Body) pdu.Body {
 	resp := pdu.NewEnquireLinkResp()
 	resp.Header().Seq = m.Header().Seq
 	return resp
 }
 
-func handleInvalidCommand() pdu.Body {
+func handleEnquireLinkResp(m pdu.Body) pdu.Body {
+	// TODO(cesar0094): what should happen if this is not received after request
+	return nil
+}
+
+func handleDeliverSMResp(m pdu.Body) pdu.Body {
+	// TODO(cesar0094): what should happen if this is not received after request
+	return nil
+}
+
+func handleInvalidCommand(m pdu.Body) pdu.Body {
 	resp := pdu.NewGenericNACK()
 	resp.Header().Status = pdu.InvalidCommandID
 	return resp
 }
 
-func processShortMessage(s *session, submitSmPdu pdu.Body) {
+func processShortMessage(s Session, submitSmPdu pdu.Body) {
 	submitDate := time.Now()
 	// Pretend to be sending the SM
 	time.Sleep(DeliverDelay)
