@@ -109,7 +109,7 @@ func TestShortMessageWindowSize(t *testing.T) {
 	}
 	nerr := 0
 	for i := 0; i < 3; i++ {
-		if <-errc != nil {
+		if <-errc == ErrMaxWindowSize {
 			nerr++
 		}
 	}
