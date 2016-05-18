@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"strconv"
 	"sync"
@@ -17,20 +18,19 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-
-	"github.com/veoo/go-smpp/smpp/logger"
 	"github.com/veoo/go-smpp/smpp/pdu"
 	"github.com/veoo/go-smpp/smpp/pdu/pdufield"
 )
 
 // Default settings.
 var (
-	DefaultUser           = "client"
-	DefaultPasswd         = "secret"
 	DefaultSystemID       = "sys_id"
 	DeliverDelay          = 1 * time.Second
+	IDLen                 = 16
 	msgIdCounter    int64 = 0
 )
+
+const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
 
 var HandlerRoutings = map[pdu.ID]func(pdu.Body) pdu.Body{
 	pdu.EnquireLinkID:     handleEnquireLink,
@@ -48,29 +48,43 @@ type RequestHandlerFunc func(Session, pdu.Body)
 // clients with the configured credentials, and echoes any other PDUs
 // back to the client.
 type Server struct {
-	User    string
-	Passwd  string
-	TLS     *tls.Config
-	Handler RequestHandlerFunc
+	User     string
+	Passwd   string
+	systemId string
+	TLS      *tls.Config
+	Handler  RequestHandlerFunc
 
-	mu sync.Mutex
-	l  net.Listener
+	mu 	 sync.Mutex
+	l  	 net.Listener
+	logger   *log.Entry
+
 }
 
 func NextMessageId() string {
 	return strconv.FormatInt(atomic.AddInt64(&msgIdCounter, 1), 10)
 }
 
+func randomString(strlen int) string {
+	rand.Seed(time.Now().UTC().UnixNano())
+
+	result := make([]byte, strlen)
+	for i := 0; i < strlen; i++ {
+		result[i] = chars[rand.Intn(len(chars))]
+	}
+	return string(result)
+}
+
 type Session interface {
 	Reader
 	Writer
 	Closer
+	ID() string
 }
 
 // NOTE: should handler funcs be session methods?
 type session struct {
-	conn         *connSwitch
-	msgIDCounter int64
+	conn *connSwitch
+	id   string
 }
 
 // TODO(cesar0094): Make sure Read(), Write() and Close() are working as expected
@@ -90,6 +104,10 @@ func (s *session) Close() error {
 	return s.conn.Close()
 }
 
+func (s *session) ID() string {
+	return s.id
+}
+
 // NewServer creates and initializes a new Server. Callers are supposed
 // to call Close on that server later.
 func NewServer(user, password string, listener net.Listener) *Server {
@@ -101,17 +119,15 @@ func NewServer(user, password string, listener net.Listener) *Server {
 // NewUnstartedServer creates a new Server with default settings, and
 // does not start it. Callers are supposed to call Start and Close later.
 func NewUnstartedServer(user, password string, listener net.Listener) *Server {
-	if user == "" {
-		user = DefaultUser
-	}
-	if password == "" {
-		password = DefaultPasswd
-	}
+	l := log.WithFields(log.Fields{
+		"source": "server",
+	})
 	return &Server{
 		User:    user,
 		Passwd:  password,
 		Handler: EchoHandler,
 		l:       listener,
+		logger:  l,
 	}
 }
 
@@ -158,10 +174,10 @@ func (srv *Server) Serve() {
 	for {
 		cli, err := srv.l.Accept()
 		if err != nil {
-			logger.Server.Error("Closing server:", err)
+			srv.logger.Error("Closing server:", err)
 			break // on srv.l.Close
 		}
-		logger.Server.WithFields(log.Fields{
+		srv.logger.WithFields(log.Fields{
 			"address": cli.RemoteAddr(),
 		}).Info("New client")
 		go srv.handle(newConn(cli))
@@ -173,19 +189,20 @@ func (srv *Server) handle(c *conn) {
 	defer c.Close()
 	if err := srv.auth(c); err != nil {
 		if err != io.EOF {
-			logger.Server.Error("Server auth failed:", err)
+			srv.logger.Error("Server auth failed:", err)
 		}
 		return
 	}
 	// Use connSwitch to have synced read/write
 	s := &session{conn: &connSwitch{}}
 	s.conn.Set(c)
+	s.id = randomString(IDLen)
 
 	for {
 		pdu, err := s.Read()
 		if err != nil {
 			if err != io.EOF {
-				logger.Server.Error("Read failed:", err)
+				srv.logger.Error("Read failed:", err)
 			}
 			break
 		}
@@ -249,7 +266,10 @@ func EchoHandler(s Session, m pdu.Body) {
 // for testing clients
 func StubHandler(s Session, m pdu.Body) {
 	bodyBytes, _ := json.Marshal(m)
-	logger.Server.WithFields(log.Fields{
+	l := log.WithFields(log.Fields{
+		"source": "server",
+	})
+	l.WithFields(log.Fields{
 		"pudId": m.Header().ID.String(),
 		"seq":   m.Header().Seq,
 		"json":  string(bodyBytes),
@@ -273,7 +293,7 @@ func StubHandler(s Session, m pdu.Body) {
 		// TODO(cesar0094): Good to go?
 		return
 	default:
-		logger.Server.Info(
+		l.Info(
 			"Could not find proper handler. Falling back to EchoHandler.")
 		EchoHandler(s, m)
 		return
@@ -284,10 +304,10 @@ func StubHandler(s Session, m pdu.Body) {
 	}
 	err := s.Write(resp)
 	if err != nil {
-		logger.Server.Error("Failed sending response:", err)
+		l.Error("Failed sending response:", err)
 	}
 	bodyBytes, _ = json.Marshal(resp)
-	logger.Server.WithFields(log.Fields{
+	l.WithFields(log.Fields{
 		"pudId": resp.Header().ID.String(),
 		"seq":   resp.Header().Seq,
 		"json":  string(bodyBytes),
@@ -298,7 +318,10 @@ func StubHandler(s Session, m pdu.Body) {
 // as a fall-back
 func RouterHandler(s Session, m pdu.Body) {
 	bodyBytes, _ := json.Marshal(m)
-	logger.Server.WithFields(log.Fields{
+	l := log.WithFields(log.Fields{
+		"source": "server",
+	})
+	l.WithFields(log.Fields{
 		"pudId": m.Header().ID.String(),
 		"seq":   m.Header().Seq,
 		"json":  string(bodyBytes),
@@ -308,7 +331,7 @@ func RouterHandler(s Session, m pdu.Body) {
 	if handler, ok := HandlerRoutings[m.Header().ID]; ok {
 		resp = handler(m)
 	} else {
-		logger.Server.Info(
+		l.Info(
 			"Could not find handler matching PDU ID. Falling back to EchoHandler.")
 		EchoHandler(s, m)
 		return
@@ -319,10 +342,10 @@ func RouterHandler(s Session, m pdu.Body) {
 	}
 	err := s.Write(resp)
 	if err != nil {
-		logger.Server.Error("Failed sending response:", err)
+		l.Error("Failed sending response:", err)
 	}
 	bodyBytes, _ = json.Marshal(resp)
-	logger.Server.WithFields(log.Fields{
+	l.WithFields(log.Fields{
 		"pudId": resp.Header().ID.String(),
 		"seq":   resp.Header().Seq,
 		"json":  string(bodyBytes),
@@ -400,6 +423,9 @@ func processShortMessage(s Session, submitSmPdu pdu.Body) {
 
 	err := s.Write(respPdu)
 	if err != nil {
-		logger.Server.Error("Failed sending delivery_sm: ", err)
+		l := log.WithFields(log.Fields{
+			"source": "spice_esme",
+		})
+		l.Error("Failed sending delivery_sm: ", err)
 	}
 }
