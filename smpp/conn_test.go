@@ -12,9 +12,9 @@ import (
 )
 
 func TestConn(t *testing.T) {
-	pass	:= "secret"
-	user    := "client"
-	port 	:= 0 // any port
+	pass := "secret"
+	user := "client"
+	port := 0 // any port
 	s := NewServer(user, pass, NewLocalListener(port))
 	defer s.Close()
 	c, err := Dial(s.Addr(), nil)

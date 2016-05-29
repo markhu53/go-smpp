@@ -11,11 +11,12 @@ import (
 	"github.com/veoo/go-smpp/smpp/pdu"
 	"github.com/veoo/go-smpp/smpp/pdu/pdufield"
 	"github.com/veoo/go-smpp/smpp/pdu/pdutext"
+	"github.com/veoo/go-smpp/smpp/smpptest"
 )
 
 func TestShortMessage(t *testing.T) {
-	pass	:= "secret"
-	user    := "client"
+	pass := "secret"
+	user := "client"
 	port := 0 // any port
 	s := NewUnstartedServer(user, pass, NewLocalListener(port))
 	s.Handler = func(s Session, p pdu.Body) {
@@ -24,9 +25,9 @@ func TestShortMessage(t *testing.T) {
 			r := pdu.NewSubmitSMResp()
 			r.Header().Seq = p.Header().Seq
 			r.Fields().Set(pdufield.MessageID, "foobar")
-			s.Write(r)
+			c.Write(r)
 		default:
-			EchoHandler(s, p)
+			smpptest.EchoHandler(c, p)
 		}
 	}
 	s.Start()
@@ -119,9 +120,9 @@ func TestShortMessageWindowSize(t *testing.T) {
 }
 
 func TestLongMessage(t *testing.T) {
-	pass	:= "secret"
-	user    := "client"
-	port 	:= 0 // any port
+	pass := "secret"
+	user := "client"
+	port := 0 // any port
 	s := NewUnstartedServer(user, pass, NewLocalListener(port))
 	s.Handler = func(s Session, p pdu.Body) {
 		switch p.Header().ID {
@@ -129,16 +130,16 @@ func TestLongMessage(t *testing.T) {
 			r := pdu.NewSubmitSMResp()
 			r.Header().Seq = p.Header().Seq
 			r.Fields().Set(pdufield.MessageID, "foobar")
-			s.Write(r)
+			c.Write(r)
 		default:
-			EchoHandler(s, p)
+			smpptest.EchoHandler(c, p)
 		}
 	}
 	s.Start()
 	defer s.Close()
 	tx := &Transmitter{
 		Addr:   s.Addr(),
-		User:  	user,
+		User:   user,
 		Passwd: pass,
 	}
 	defer tx.Close()
@@ -168,16 +169,16 @@ func TestLongMessage(t *testing.T) {
 }
 
 func TestQuerySM(t *testing.T) {
-	pass	:= "secret"
-	user    := "client"
-	port 	:= 0 // any port
+	pass := "secret"
+	user := "client"
+	port := 0 // any port
 	s := NewUnstartedServer(user, pass, NewLocalListener(port))
 	s.Handler = func(s Session, p pdu.Body) {
 		r := pdu.NewQuerySMResp()
 		r.Header().Seq = p.Header().Seq
 		r.Fields().Set(pdufield.MessageID, p.Fields()[pdufield.MessageID])
 		r.Fields().Set(pdufield.MessageState, 2)
-		s.Write(r)
+		c.Write(r)
 	}
 	s.Start()
 	defer s.Close()
