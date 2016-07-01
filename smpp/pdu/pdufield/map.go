@@ -9,9 +9,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/veoo/go-smpp/smpp/pdu/pdutext"
 	"strconv"
 	"strings"
+
+	"github.com/veoo/go-smpp/smpp/pdu/pdutext"
 )
 
 // Map is a collection of PDU field data indexed by name.
@@ -150,13 +151,9 @@ func (m TLVMap) Set(k TLVType, v interface{}) error {
 	default:
 		return fmt.Errorf("Unsupported field data: %#v", v)
 	}
-	len := uint16(byteSliceLen(data))
+	len := uint16(len(data))
 	m[k] = &TLVBody{Tag: k, data: data, Len: len}
 	return nil
-}
-
-func byteSliceLen(b []byte) int {
-	return len(b)
 }
 
 func (m TLVMap) MarshalJSON() ([]byte, error) {
