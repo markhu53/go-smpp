@@ -75,35 +75,6 @@ func (pdu *Codec) TLVFields() pdufield.TLVMap {
 	return pdu.t
 }
 
-// Setup the optional parameters and checks the parameters list
-// contains the validad parameter according with pdu type.
-func (pdu *Codec) SetTLVFields(m pdufield.TLVMap) error {
-	var o map[pdufield.TLVType]string
-	switch pdu.Header().ID {
-	case BindTransmitterID:
-		o = pdufield.GetParameters(pdufield.BindTransmiterTLVParameter)
-	case SubmitSMID:
-		o = pdufield.GetParameters(pdufield.SubmitSMTLVParameter)
-	case SubmitMultiID:
-		o = pdufield.GetParameters(pdufield.SubmitSMMultiTLVParameter)
-	case DeliverSMID:
-		o = pdufield.GetParameters(pdufield.DeliverSMTLVParameter)
-	case DataSMID:
-		o = pdufield.GetParameters(pdufield.DataSMTLVParameter)
-	case DataSMRespID:
-		o = pdufield.GetParameters(pdufield.DataSMRespTLVParameter)
-	default:
-		return fmt.Errorf("Unknown PDU type: %s", pdu.Header().ID.String())
-	}
-	for k, _ := range m {
-		if _, ok := o[k]; !ok {
-			return fmt.Errorf("Parameter not allowed for PDU %s:", pdu.Header().ID.String())
-		}
-	}
-	pdu.t = m
-	return nil
-}
-
 // SerializeTo implements the PDU interface.
 func (pdu *Codec) SerializeTo(w io.Writer) error {
 	var b bytes.Buffer
@@ -117,11 +88,10 @@ func (pdu *Codec) SerializeTo(w io.Writer) error {
 			return err
 		}
 	}
-	for k, v := range pdu.TLVFields() {
+	for _, v := range pdu.TLVFields() {
 		if err := v.SerializeTo(&b); err != nil {
 			return err
 		}
-		pdu.t.Set(k, nil)
 	}
 
 	pdu.h.Len = uint32(pdu.Len())
@@ -203,19 +173,19 @@ func Decode(r io.Reader) (Body, error) {
 	}
 	switch hdr.ID {
 	case AlertNotificationID:
-	// TODO(fiorix): Implement AlertNotification.
+		// TODO(fiorix): Implement AlertNotification.
 	case BindReceiverID, BindTransceiverID, BindTransmitterID:
 		return decodeFields(newBind(hdr), b)
 	case BindReceiverRespID, BindTransceiverRespID, BindTransmitterRespID:
 		return decodeFields(newBindResp(hdr), b)
 	case CancelSMID:
-	// TODO(fiorix): Implement CancelSM.
+		// TODO(fiorix): Implement CancelSM.
 	case CancelSMRespID:
-	// TODO(fiorix): Implement CancelSMResp.
+		// TODO(fiorix): Implement CancelSMResp.
 	case DataSMID:
-	// TODO(fiorix): Implement DataSM.
+		// TODO(fiorix): Implement DataSM.
 	case DataSMRespID:
-	// TODO(fiorix): Implement DataSMResp.
+		// TODO(fiorix): Implement DataSMResp.
 	case DeliverSMID:
 		return decodeFields(newDeliverSM(hdr), b)
 	case DeliverSMRespID:
@@ -227,19 +197,19 @@ func Decode(r io.Reader) (Body, error) {
 	case GenericNACKID:
 		return decodeFields(newGenericNACK(hdr), b)
 	case OutbindID:
-	// TODO(fiorix): Implement Outbind.
+		// TODO(fiorix): Implement Outbind.
 	case QuerySMID:
 		return decodeFields(newQuerySM(hdr), b)
 	case QuerySMRespID:
 		return decodeFields(newQuerySMResp(hdr), b)
 	case ReplaceSMID:
-	// TODO(fiorix): Implement ReplaceSM.
+		// TODO(fiorix): Implement ReplaceSM.
 	case ReplaceSMRespID:
-	// TODO(fiorix): Implement ReplaceSMResp.
+		// TODO(fiorix): Implement ReplaceSMResp.
 	case SubmitMultiID:
-	// TODO(fiorix): Implement SubmitMulti.
+		// TODO(fiorix): Implement SubmitMulti.
 	case SubmitMultiRespID:
-	// TODO(fiorix): Implement SubmitMultiResp.
+		// TODO(fiorix): Implement SubmitMultiResp.
 	case SubmitSMID:
 		return decodeFields(newSubmitSM(hdr), b)
 	case SubmitSMRespID:

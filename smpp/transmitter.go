@@ -150,12 +150,12 @@ const (
 // the Transmitter. When returned from Submit, the ShortMessage
 // provides Resp and RespID.
 type ShortMessage struct {
-	Src        string
-	Dst        string
-	Text       pdutext.Codec
-	Validity   time.Duration
-	Register   DeliverySetting
-	OptsParams pdufield.TLVMap
+	Src       string
+	Dst       string
+	Text      pdutext.Codec
+	Validity  time.Duration
+	Register  DeliverySetting
+	OptParams pdufield.TLVMap
 
 	// Other fields, normally optional.
 	ServiceType          string
@@ -208,9 +208,7 @@ func (t *Transmitter) do(p pdu.Body) (*tx, error) {
 	}
 	if t.conn.WindowSize > 0 {
 		inflight := uint(atomic.AddInt32(&t.tx.count, 1))
-		defer func(t *Transmitter) {
-			atomic.AddInt32(&t.tx.count, -1)
-		}(t)
+		defer func(t *Transmitter) { atomic.AddInt32(&t.tx.count, -1) }(t)
 		if inflight > t.conn.WindowSize {
 			return nil, ErrMaxWindowSize
 		}
@@ -329,6 +327,12 @@ func (t *Transmitter) submitMsg(sm *ShortMessage, p pdu.Body, dataCoding uint8) 
 	f.Set(pdufield.ReplaceIfPresentFlag, sm.ReplaceIfPresentFlag)
 	f.Set(pdufield.SMDefaultMsgID, sm.SMDefaultMsgID)
 	f.Set(pdufield.DataCoding, dataCoding)
+	//set the optional parameters in the submit pdu from sm
+	optParams := p.TLVFields()
+	for param, value := range sm.OptParams {
+		optParams.Set(param, value)
+	}
+
 	resp, err := t.do(p)
 	if err != nil {
 		return nil, err
