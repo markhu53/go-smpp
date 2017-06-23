@@ -8,7 +8,9 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -99,6 +101,13 @@ func (c *conn) Write(w pdu.Body) error {
 	if err != nil {
 		return err
 	}
+	var printBuffer bytes.Buffer
+	err = w.SerializeTo(&printBuffer)
+	if err != nil {
+		return err
+	}
+	fmt.Println("PDU DUMP HEX:", hex.EncodeToString(printBuffer.Bytes()))
+
 	_, err = io.Copy(c.w, &b)
 	if err != nil {
 		return err
