@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/veoo/go-smpp/smpp/pdu"
-	"github.com/veoo/go-smpp/smpp/pdu/pdufield"
-	"github.com/veoo/go-smpp/smpp/pdu/pdutext"
-	"github.com/veoo/go-smpp/smpp/smpptest"
+	"github.com/markhu53/go-smpp/smpp/pdu"
+	"github.com/markhu53/go-smpp/smpp/pdu/pdufield"
+	"github.com/markhu53/go-smpp/smpp/pdu/pdutext"
+	"github.com/markhu53/go-smpp/smpp/smpptest"
 )
 
 func TestTransceiver(t *testing.T) {

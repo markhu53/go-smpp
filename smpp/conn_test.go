@@ -7,9 +7,9 @@ package smpp
 import (
 	"testing"
 
-	"github.com/veoo/go-smpp/smpp/pdu"
-	"github.com/veoo/go-smpp/smpp/pdu/pdufield"
-	"github.com/veoo/go-smpp/smpp/smpptest"
+	"github.com/markhu53/go-smpp/smpp/pdu"
+	"github.com/markhu53/go-smpp/smpp/pdu/pdufield"
+	"github.com/markhu53/go-smpp/smpp/smpptest"
 )
 
 func TestConn(t *testing.T) {

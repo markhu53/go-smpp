@@ -4,7 +4,7 @@
 
 package pdu
 
-import "github.com/veoo/go-smpp/smpp/pdu/pdufield"
+import "github.com/markhu53/go-smpp/smpp/pdu/pdufield"
 
 // PDU Types.
 const (
