@@ -186,8 +186,10 @@ func (srv *server) Serve() {
 		if err != nil {
 			log.Println("Closing server:", err)
 			continue //break // on srv.l.Close
+		} else {
+			log.Println("accept")
 		}
-		//go srv.handle(newConn(cli))
+		go srv.handle(newConn(cli))
 	}
 }
 
