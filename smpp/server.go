@@ -185,7 +185,7 @@ func (srv *server) Serve() {
 		cli, err := srv.l.Accept()
 		if err != nil {
 			log.Println("Closing server:", err)
-			break // on srv.l.Close
+			continue //break // on srv.l.Close
 		}
 		go srv.handle(newConn(cli))
 	}
